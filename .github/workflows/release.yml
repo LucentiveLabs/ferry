@@ -1,0 +1,72 @@
+name: Release
+
+# Changesets release via npm Trusted Publishing (OIDC).
+#
+# On push to main: if changesets are pending, changesets/action opens a
+# "Version Packages" PR (it does NOT publish). Merging that PR bumps versions
+# and consumes the changesets; this workflow then runs `pnpm release` →
+# `changeset publish` with provenance (NPM_CONFIG_PROVENANCE below).
+#
+# The Version PR is created regardless, but the publish step only SUCCEEDS once:
+#   1. the repository is PUBLIC (provenance requires a public repo + package),
+#   2. the @lucentive-labs npm org/scope exists, and
+#   3. an npm Trusted Publisher is configured for this repo + workflow
+#      (npmjs.com → @lucentive-labs → Publishing access → Trusted Publisher),
+#      with npm CLI >= 11.5.1 and Node >= 22.14 on the runner.
+# With Trusted Publishing, NO npm token is needed — `id-token: write` lets the
+# npm CLI exchange the GitHub OIDC token for a short-lived publish credential.
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # OIDC token for npm Trusted Publishing + provenance
+  contents: write # changesets/action pushes the version PR / tags / releases
+  pull-requests: write # changesets/action opens the "Version Packages" PR
+
+jobs:
+  release:
+    name: Release
+    # Only ever runs on main in the LucentiveLabs org. The publish step no-ops
+    # until a Version PR merges and the Trusted Publisher (above) is configured.
+    if: ${{ github.ref == 'refs/heads/main' && github.repository_owner == 'LucentiveLabs' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      # npm Trusted Publishing (OIDC) + provenance require npm >= 11.5.1, newer
+      # than the npm bundled with Node 22. Upgrade it before the publish step.
+      - name: Upgrade npm (Trusted Publishing needs >= 11.5.1)
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Create Release PR or Publish to npm
+        id: changesets
+        uses: changesets/action@v1
+        env:
+          NPM_CONFIG_PROVENANCE: "true" # publish with provenance attestation
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # open/update the Version PR
+        with:
+          # `release` builds the package then runs `changeset publish`.
+          # Publishing uses npm Trusted Publishing (OIDC) — no NPM_TOKEN.
+          publish: pnpm release
+          version: pnpm changeset version

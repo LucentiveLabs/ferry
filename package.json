@@ -1,0 +1,84 @@
+{
+  "name": "@lucentive-labs/ferry",
+  "version": "0.0.0",
+  "description": "Agent-era secrets broker — inject declared secrets into a child process's env without ever exposing them to the calling agent. Zero runtime deps, output redaction, per-command policy allowlist, append-only audit.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Lucentive Labs",
+  "homepage": "https://labs.lucentive.io/libraries/ferry",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LucentiveLabs/ferry.git"
+  },
+  "bugs": "https://github.com/LucentiveLabs/ferry/issues",
+  "keywords": [
+    "secrets",
+    "secrets-management",
+    "env",
+    "agent-native",
+    "redaction",
+    "zero-dependency",
+    "cli",
+    "security"
+  ],
+  "packageManager": "pnpm@10.30.2",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./cli": {
+      "types": "./src/cli.ts",
+      "import": "./src/cli.ts"
+    }
+  },
+  "bin": {
+    "ferry": "./dist/cli.js"
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint:publish": "pnpm build && node scripts/check-publish.mjs",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "pnpm build && changeset publish"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "bin": {
+      "ferry": "./dist/cli.js"
+    },
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./cli": {
+        "types": "./dist/cli.d.ts",
+        "import": "./dist/cli.js"
+      }
+    }
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.4",
+    "@changesets/cli": "2.31.0",
+    "@types/node": "^25.5.0",
+    "publint": "0.3.21",
+    "tsdown": "0.22.3",
+    "tsx": "4.22.4",
+    "typescript": "^5.9.3",
+    "vitest": "4.1.9"
+  }
+}
