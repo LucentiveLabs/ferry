@@ -1,6 +1,6 @@
 {
   "name": "@lucentive-labs/ferry",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Agent-era secrets broker — inject declared secrets into a child process's env without ever exposing them to the calling agent. Zero runtime deps, output redaction, per-command policy allowlist, append-only audit.",
   "type": "module",
   "license": "MIT",
@@ -40,7 +40,11 @@
   "bin": {
     "ferry": "./dist/cli.js"
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
@@ -69,7 +73,9 @@
     }
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.4",
