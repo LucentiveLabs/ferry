@@ -46,6 +46,7 @@
     "LICENSE"
   ],
   "scripts": {
+    "prepare": "[ \"$(git rev-parse --show-toplevel 2>/dev/null)\" = \"$(pwd -P)\" ] && git config core.hooksPath scripts/githooks || true",
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

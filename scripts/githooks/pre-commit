@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# pre-commit — client-side secret gate (defence-in-depth).
+#
+# Wired via `git config core.hooksPath scripts/githooks` (the package.json
+# "prepare" script sets this automatically inside a git checkout). Runs the
+# shared scanner in fast staged mode so a secret can't be committed locally.
+# This is bypassable (git commit --no-verify) by design — the AUTHORITATIVE
+# gate is the server-side security-gate.yml on the PR, which --no-verify
+# cannot skip. This hook just catches mistakes early.
+set -euo pipefail
+if [ -x "scripts/security-scan.sh" ]; then
+  exec scripts/security-scan.sh --mode staged
+fi
+echo "⚠️  scripts/security-scan.sh not found — skipping local secret scan (server security-gate still enforces)"
+exit 0

@@ -31,6 +31,15 @@ src/
   backends/       op() · file() (AES-256-GCM) · env()
 ```
 
+## Local hooks
+
+`pnpm install` activates the repo-vendored git hooks (`scripts/githooks`), which run a
+[gitleaks](https://github.com/gitleaks/gitleaks) secret scan on every commit. Install gitleaks
+first — `brew install gitleaks` on macOS, or grab a binary from the
+[gitleaks releases](https://github.com/gitleaks/gitleaks/releases) on Linux. If you need to
+skip the hook locally, `git commit --no-verify` bypasses it — the CI security gate remains
+authoritative and will still block secrets on the PR.
+
 ## The bar for changes
 
 - **Zero runtime dependencies.** Ferry is built on Node built-ins only. A PR that adds a
