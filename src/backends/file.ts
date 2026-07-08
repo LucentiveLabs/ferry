@@ -76,7 +76,9 @@ export class FileBackend implements Backend {
     try {
       const salt = Buffer.from(entry.salt, "base64");
       const key = scryptSync(passphrase, salt, 32);
-      const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(entry.iv, "base64"));
+      const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(entry.iv, "base64"), {
+        authTagLength: 16,
+      });
       decipher.setAuthTag(Buffer.from(entry.tag, "base64"));
       const plain = Buffer.concat([
         decipher.update(Buffer.from(entry.ciphertext, "base64")),
@@ -101,7 +103,7 @@ export class FileBackend implements Backend {
     const salt = randomBytes(16);
     const iv = randomBytes(12);
     const key = scryptSync(passphrase, salt, 32);
-    const cipher = createCipheriv("aes-256-gcm", key, iv);
+    const cipher = createCipheriv("aes-256-gcm", key, iv, { authTagLength: 16 });
     const ciphertext = Buffer.concat([cipher.update(Buffer.from(value, "utf8")), cipher.final()]);
     const tag = cipher.getAuthTag();
 
