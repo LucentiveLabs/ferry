@@ -11,12 +11,23 @@
 # them so a skip cannot silently pass. Secrets ALWAYS block. Deps/SAST blocking
 # is controlled by --fail-on so a repo can adopt in report-mode then harden.
 #
+# Severity gating (--fail-on high): osv-scanner blocks ONLY on HIGH/CRITICAL
+# vulnerabilities (groups[].max_severity CVSS >= 7.0, falling back to
+# database_specific.severity strings; unknown severity fails closed); semgrep
+# blocks ONLY on ERROR-severity findings. Lower-severity findings are printed
+# report-only. Severity parsing needs python3 (stdlib only); if python3 is
+# missing the gate falls back to blocking on ANY finding (fail closed).
+#
+# Per-vuln ignores: add an `osv-scanner.toml` at the repo root with
+# [[IgnoredVulns]] entries (id + reason) — osv-scanner auto-loads it from the
+# scanned directory. Never blanket-ignore; one entry per triaged vuln.
+#
 # Usage: security-scan.sh [--mode staged|full] [--repo PATH] [--fail-on secrets|high|off]
 set -uo pipefail
 
 MODE="full"
 REPO="$(pwd)"
-FAIL_ON="high"   # secrets = block only on leaked secrets; high = also block on ANY deps/SAST finding (osv/semgrep are exit-based here, not severity-filtered — see note below); off = report only
+FAIL_ON="high"   # secrets = block only on leaked secrets; high = also block on HIGH/CRITICAL deps vulns + ERROR-severity SAST findings (lower severities report-only); off = report only
 while [ $# -gt 0 ]; do
   case "$1" in
     --mode) MODE="$2"; shift 2 ;;
@@ -40,8 +51,10 @@ elif [ -f "$SELF_DIR/gitleaks-baseline.toml" ]; then GL_CONFIG=(--config "$SELF_
 
 have() { command -v "$1" >/dev/null 2>&1; }
 SECRETS_FAIL=0
-DEPS_FAIL=0
-SAST_FAIL=0
+DEPS_FAIL=0    # any deps finding (report line)
+DEPS_BLOCK=0   # HIGH/CRITICAL deps finding, scanner error, or unparseable output
+SAST_FAIL=0    # any SAST finding (report line)
+SAST_BLOCK=0   # ERROR-severity SAST finding, scanner error, or unparseable output
 echo "== security-scan (mode=$MODE fail-on=$FAIL_ON repo=$REPO) =="
 
 # --- Secrets (gitleaks) — always blocking on a real hit -----------------------
@@ -72,21 +85,104 @@ fi
 if have osv-scanner; then
   # osv-scanner exit codes (v2): 0 = clean, 1 = vulnerabilities found,
   # 128 = no package sources found (e.g. docs-only repo — a SKIP, not a fail).
-  # Any other code is a scanner error; surface it and let --fail-on decide.
-  # Per-run temp file (harness rule: never fixed shared /tmp paths).
-  if OSV_OUT="$(mktemp "${TMPDIR:-/tmp}/osv-out.XXXXXX")"; then
-    osv-scanner scan source -r . >"$OSV_OUT" 2>&1
+  # Any other code is a scanner error; surface it and fail closed under high.
+  # We scan with --format json and print our own human-readable summary; the
+  # embedded python3 parser classifies each vuln HIGH/CRITICAL vs lower.
+  # Per-run temp files (harness rule: never fixed shared /tmp paths).
+  if OSV_OUT="$(mktemp "${TMPDIR:-/tmp}/osv-out.XXXXXX")" && OSV_ERR="$(mktemp "${TMPDIR:-/tmp}/osv-err.XXXXXX")"; then
+    osv-scanner scan source --format json -r . >"$OSV_OUT" 2>"$OSV_ERR"
     OSV_RC=$?
     case "$OSV_RC" in
       0)   echo "✅ osv-scanner: clean" ;;
       128) echo "✅ osv-scanner: no package sources found — dependency scan skipped" ;;
-      1)   DEPS_FAIL=1; echo "⚠️  osv-scanner: vulnerable dependencies found:"; tail -n 40 "$OSV_OUT" ;;
-      *)   DEPS_FAIL=1; echo "⚠️  osv-scanner: scanner error (exit $OSV_RC):"; tail -n 20 "$OSV_OUT" ;;
+      1)
+        DEPS_FAIL=1
+        if have python3; then
+          # Severity classification: prefer groups[].max_severity (numeric CVSS
+          # score, >= 7.0 = HIGH), fall back to database_specific.severity
+          # strings. Unknown = fail closed. (severity[].score is a CVSS vector
+          # STRING, not a number — deliberately not parsed; such vulns fail
+          # closed as unknown.) This parser only runs when osv-scanner exited 1
+          # (findings exist), so zero parsed findings = schema drift -> exit 3.
+          python3 - "$OSV_OUT" <<'PY_OSV'
+import json, sys
+
+def as_float(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+except Exception as e:  # malformed/partial JSON -> distinct exit for fail-closed
+    sys.stderr.write("osv JSON parse error: %s\n" % e)
+    sys.exit(3)
+
+high = 0
+lower = 0
+for res in data.get("results") or []:
+    src = (res.get("source") or {}).get("path") or "?"
+    for pkg in res.get("packages") or []:
+        p = pkg.get("package") or {}
+        pname = "%s@%s" % (p.get("name") or "?", p.get("version") or "?")
+        group_sev = {}
+        for g in pkg.get("groups") or []:
+            for vid in g.get("ids") or []:
+                group_sev[vid] = g.get("max_severity")
+        for v in pkg.get("vulnerabilities") or []:
+            vid = v.get("id") or "?"
+            label = None  # True = HIGH/CRITICAL, False = lower
+            detail = ""
+            score = as_float(group_sev.get(vid))
+            if score is not None:
+                label = score >= 7.0
+                detail = "cvss %.1f" % score
+            else:
+                sev = ((v.get("database_specific") or {}).get("severity") or "").strip().upper()
+                if sev in ("HIGH", "CRITICAL"):
+                    label, detail = True, sev.lower()
+                elif sev in ("MODERATE", "MEDIUM", "LOW"):
+                    label, detail = False, sev.lower()
+                # NOTE: no severity[].score fallback — OSV's severity[].score is
+                # a CVSS vector string ("CVSS:3.1/AV:N/..."), never a number, so
+                # a numeric parse can't match; unknowns fail closed below.
+            if label is None:
+                label, detail = True, "unknown severity — fail closed"
+            if label:
+                high += 1
+                mark = "BLOCK"
+            else:
+                lower += 1
+                mark = "report-only"
+            print("   [%s] %s %s (%s) in %s" % (mark, vid, pname, detail, src))
+if high + lower == 0:
+    # osv-scanner exited 1 (findings exist) yet we parsed none: the JSON shape
+    # drifted (e.g. no/renamed "results" key). Fail closed as a parse failure.
+    sys.stderr.write("osv reported findings but none parsed from JSON (schema drift?) — failing closed\n")
+    sys.exit(3)
+print("   osv summary: %d HIGH/CRITICAL (blocking), %d lower-severity (report-only)" % (high, lower))
+sys.exit(1 if high else 0)
+PY_OSV
+          case $? in
+            0) echo "⚠️  osv-scanner: lower-severity vulnerabilities only (report-only under --fail-on $FAIL_ON)" ;;
+            1) DEPS_BLOCK=1; echo "❌ osv-scanner: HIGH/CRITICAL vulnerabilities found" ;;
+            *) DEPS_BLOCK=1; echo "❌ osv-scanner: could not parse scanner JSON — failing closed"; tail -n 20 "$OSV_ERR" ;;
+          esac
+        else
+          # No python3: cannot severity-gate; fail closed on ANY finding.
+          DEPS_BLOCK=1
+          echo "⚠️  osv-scanner: vulnerabilities found (python3 missing — blocking on ANY finding):"
+          tail -n 40 "$OSV_OUT"
+        fi
+        ;;
+      *)   DEPS_FAIL=1; DEPS_BLOCK=1; echo "⚠️  osv-scanner: scanner error (exit $OSV_RC):"; tail -n 20 "$OSV_ERR" "$OSV_OUT" 2>/dev/null ;;
     esac
-    rm -f "$OSV_OUT"
+    rm -f "$OSV_OUT" "$OSV_ERR"
   else
     # Fail loud rather than silently skip deps if we cannot even make a temp file.
-    DEPS_FAIL=1; echo "⚠️  osv-scanner: could not create temp output file (TMPDIR=${TMPDIR:-/tmp}) — dependency scan errored"
+    DEPS_FAIL=1; DEPS_BLOCK=1; echo "⚠️  osv-scanner: could not create temp output file (TMPDIR=${TMPDIR:-/tmp}) — dependency scan errored"
   fi
 else
   echo "⚠️  osv-scanner not installed — dependency scan SKIPPED (CI must install it)"
@@ -94,29 +190,93 @@ fi
 
 # --- SAST (semgrep) -----------------------------------------------------------
 if have semgrep; then
-  semgrep scan \
-    --config p/owasp-top-ten --config p/secrets --config p/javascript \
-    --config p/typescript --config p/react --config p/nextjs \
-    --error --quiet --metrics off --timeout 120 \
-    --exclude node_modules --exclude .next --exclude dist --exclude build \
-    . || SAST_FAIL=1
-  [ "$SAST_FAIL" = 1 ] && echo "⚠️  semgrep: findings (see output)" || echo "✅ semgrep: clean"
+  # Single --json pass; the embedded python3 parser prints a per-finding summary
+  # and classifies severity: ERROR blocks under --fail-on high, WARNING/INFO are
+  # report-only, unknown severities fail closed. semgrep exit codes with
+  # --error: 0 = clean, 1 = findings (any severity), >1 = scanner error.
+  if SG_OUT="$(mktemp "${TMPDIR:-/tmp}/semgrep-out.XXXXXX")"; then
+    semgrep scan \
+      --config p/owasp-top-ten --config p/secrets --config p/javascript \
+      --config p/typescript --config p/react --config p/nextjs \
+      --error --quiet --metrics off --timeout 120 \
+      --exclude node_modules --exclude .next --exclude dist --exclude build \
+      --json --output "$SG_OUT" .
+    SG_RC=$?
+    case "$SG_RC" in
+      0) echo "✅ semgrep: clean" ;;
+      1)
+        SAST_FAIL=1
+        if have python3; then
+          # This parser only runs when semgrep (with --error) exited 1, i.e.
+          # findings exist — so zero parsed findings = schema drift -> exit 3.
+          python3 - "$SG_OUT" <<'PY_SG'
+import json, sys
+
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+except Exception as e:  # malformed/partial JSON -> distinct exit for fail-closed
+    sys.stderr.write("semgrep JSON parse error: %s\n" % e)
+    sys.exit(3)
+
+counts = {"ERROR": 0, "WARNING": 0, "INFO": 0}
+unknown = 0
+for r in data.get("results") or []:
+    extra = r.get("extra") or {}
+    sev = (extra.get("severity") or "").strip().upper()
+    if sev in counts:
+        counts[sev] += 1
+    else:  # future/unknown severity (e.g. CRITICAL) — fail closed
+        unknown += 1
+        sev = sev or "UNKNOWN"
+    loc = "%s:%s" % (r.get("path") or "?", (r.get("start") or {}).get("line") or "?")
+    mark = "BLOCK" if (sev == "ERROR" or sev not in counts) else "report-only"
+    print("   [%s] %s %s %s" % (mark, sev, r.get("check_id") or "?", loc))
+if sum(counts.values()) + unknown == 0:
+    # semgrep exited 1 (findings exist) yet we parsed none: the JSON shape
+    # drifted (e.g. no/renamed "results" key). Fail closed as a parse failure.
+    sys.stderr.write("semgrep reported findings but none parsed from JSON (schema drift?) — failing closed\n")
+    sys.exit(3)
+print("   semgrep summary: %d ERROR (blocking), %d WARNING + %d INFO (report-only), %d unknown-severity (blocking)"
+      % (counts["ERROR"], counts["WARNING"], counts["INFO"], unknown))
+sys.exit(1 if (counts["ERROR"] + unknown) else 0)
+PY_SG
+          case $? in
+            0) echo "⚠️  semgrep: WARNING/INFO findings only (report-only under --fail-on $FAIL_ON)" ;;
+            1) SAST_BLOCK=1; echo "❌ semgrep: ERROR-severity findings" ;;
+            *) SAST_BLOCK=1; echo "❌ semgrep: could not parse scanner JSON — failing closed" ;;
+          esac
+        else
+          # No python3: cannot severity-gate; fail closed on ANY finding.
+          SAST_BLOCK=1
+          echo "⚠️  semgrep: findings (python3 missing — blocking on ANY finding); raw JSON tail:"
+          tail -n 20 "$SG_OUT"
+        fi
+        ;;
+      *) SAST_FAIL=1; SAST_BLOCK=1; echo "⚠️  semgrep: scanner error (exit $SG_RC):"; tail -n 20 "$SG_OUT" 2>/dev/null ;;
+    esac
+    rm -f "$SG_OUT"
+  else
+    # Fail loud rather than silently skip SAST if we cannot even make a temp file.
+    SAST_FAIL=1; SAST_BLOCK=1; echo "⚠️  semgrep: could not create temp output file (TMPDIR=${TMPDIR:-/tmp}) — SAST errored"
+  fi
 else
   echo "⚠️  semgrep not installed — SAST SKIPPED (CI must install it)"
 fi
 
 # --- Aggregate verdict --------------------------------------------------------
-echo "== result: secrets=$SECRETS_FAIL deps=$DEPS_FAIL sast=$SAST_FAIL =="
+echo "== result: secrets=$SECRETS_FAIL deps=$DEPS_FAIL deps-blocking=$DEPS_BLOCK sast=$SAST_FAIL sast-blocking=$SAST_BLOCK =="
 # Secrets always block.
 [ "$SECRETS_FAIL" = 1 ] && { echo "FAIL: leaked secret"; exit 1; }
 case "$FAIL_ON" in
   off) echo "PASS (report-only for deps/SAST)"; exit 0 ;;
   secrets) echo "PASS (secrets clean; deps/SAST report-only)"; exit 0 ;;
   high|*)
-    # NOTE: this blocks on ANY deps/SAST finding, not strictly High/Critical.
-    # osv-scanner exit 1 = any vuln; semgrep --error = any finding. True
-    # severity-gating (parse osv/semgrep JSON, block only High/Critical) is a
-    # future enhancement; today "high" means "any deps/SAST finding blocks".
-    if [ "$DEPS_FAIL" = 1 ] || [ "$SAST_FAIL" = 1 ]; then echo "FAIL: deps/SAST findings"; exit 1; fi
+    # Severity-aware: deps block only on HIGH/CRITICAL (CVSS >= 7.0) osv vulns;
+    # SAST blocks only on ERROR-severity semgrep findings. Scanner errors,
+    # unparseable JSON, and unknown severities also block (fail loud/closed,
+    # never silently pass). Lower-severity findings are reported above only.
+    if [ "$DEPS_BLOCK" = 1 ] || [ "$SAST_BLOCK" = 1 ]; then echo "FAIL: HIGH/CRITICAL deps vulns or ERROR-severity SAST findings"; exit 1; fi
+    if [ "$DEPS_FAIL" = 1 ] || [ "$SAST_FAIL" = 1 ]; then echo "PASS (lower-severity deps/SAST findings are report-only)"; exit 0; fi
     echo "PASS"; exit 0 ;;
 esac

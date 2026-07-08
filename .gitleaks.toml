@@ -29,3 +29,12 @@ regexes = ['''^["']?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?:?["']?$''']
 # appears there), so it isn't needed. A repo with deliberate synthetic-secret
 # fixtures should ship its own .gitleaks.toml with exact fingerprints/regexes for
 # those specific fake values rather than allowlisting whole directories.
+
+# Documentation placeholder credentials, e.g. `Authorization: Bearer YOUR_SECRET_KEY`
+# in vendored third-party skill docs. Anchored to ALL-CAPS underscore-separated
+# placeholder words starting with an obvious placeholder prefix — a real secret
+# never has this shape (no lowercase, no digits-only, must start YOUR_/MY_/etc.).
+[[allowlists]]
+description = "all-caps placeholder tokens in documentation examples"
+regexTarget = "secret"
+regexes = ['''^(?:YOUR|MY|EXAMPLE|PLACEHOLDER|INSERT)_[A-Z0-9_]+$''']
