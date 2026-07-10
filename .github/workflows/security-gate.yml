@@ -1,3 +1,4 @@
+# synced-from: security-gate skill v1.0.0
 # Reusable security gate — drop into each repo as .github/workflows/security-gate.yml
 #
 # Runs on every PR. v1 policy: SECRETS BLOCK (gitleaks, working tree + full

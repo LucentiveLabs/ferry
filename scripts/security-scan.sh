@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# synced-from: security-gate skill v1.0.0
 # security-scan.sh — reusable deterministic security gate.
 #
 # One scanner entrypoint shared by three surfaces so local, pre-commit, CI, and
@@ -14,20 +15,22 @@
 # Severity gating (--fail-on high): osv-scanner blocks ONLY on HIGH/CRITICAL
 # vulnerabilities (groups[].max_severity CVSS >= 7.0, falling back to
 # database_specific.severity strings; unknown severity fails closed); semgrep
-# blocks ONLY on ERROR-severity findings. Lower-severity findings are printed
-# report-only. Severity parsing needs python3 (stdlib only); if python3 is
-# missing the gate falls back to blocking on ANY finding (fail closed).
+# blocks ONLY on CRITICAL/HIGH/ERROR-severity findings (MEDIUM/WARNING/LOW/INFO
+# are printed report-only; anything else fails closed). Severity parsing needs
+# python3 (stdlib only); if python3 is missing the gate falls back to blocking
+# on ANY finding (fail closed).
 #
-# Per-vuln ignores: add an `osv-scanner.toml` at the repo root with
-# [[IgnoredVulns]] entries (id + reason) — osv-scanner auto-loads it from the
-# scanned directory. Never blanket-ignore; one entry per triaged vuln.
+# Per-vuln ignores: add an `osv-scanner.toml` NEXT TO EACH scanned lockfile with
+# [[IgnoredVulns]] entries (id + reason) — osv-scanner loads config per scanned
+# directory, so a repo-root toml does NOT cover nested lockfiles. Never
+# blanket-ignore; one entry per triaged vuln.
 #
 # Usage: security-scan.sh [--mode staged|full] [--repo PATH] [--fail-on secrets|high|off]
 set -uo pipefail
 
 MODE="full"
 REPO="$(pwd)"
-FAIL_ON="high"   # secrets = block only on leaked secrets; high = also block on HIGH/CRITICAL deps vulns + ERROR-severity SAST findings (lower severities report-only); off = report only
+FAIL_ON="high"   # secrets = block only on leaked secrets; high = also block on HIGH/CRITICAL deps vulns + CRITICAL/HIGH/ERROR-severity SAST findings (lower severities report-only); off = report only
 while [ $# -gt 0 ]; do
   case "$1" in
     --mode) MODE="$2"; shift 2 ;;
@@ -54,7 +57,7 @@ SECRETS_FAIL=0
 DEPS_FAIL=0    # any deps finding (report line)
 DEPS_BLOCK=0   # HIGH/CRITICAL deps finding, scanner error, or unparseable output
 SAST_FAIL=0    # any SAST finding (report line)
-SAST_BLOCK=0   # ERROR-severity SAST finding, scanner error, or unparseable output
+SAST_BLOCK=0   # CRITICAL/HIGH/ERROR-severity SAST finding, scanner error, or unparseable output
 echo "== security-scan (mode=$MODE fail-on=$FAIL_ON repo=$REPO) =="
 
 # --- Secrets (gitleaks) — always blocking on a real hit -----------------------
@@ -140,7 +143,7 @@ for res in data.get("results") or []:
                 label = score >= 7.0
                 detail = "cvss %.1f" % score
             else:
-                sev = ((v.get("database_specific") or {}).get("severity") or "").strip().upper()
+                sev = str((v.get("database_specific") or {}).get("severity") or "").strip().upper()
                 if sev in ("HIGH", "CRITICAL"):
                     label, detail = True, sev.lower()
                 elif sev in ("MODERATE", "MEDIUM", "LOW"):
@@ -191,9 +194,10 @@ fi
 # --- SAST (semgrep) -----------------------------------------------------------
 if have semgrep; then
   # Single --json pass; the embedded python3 parser prints a per-finding summary
-  # and classifies severity: ERROR blocks under --fail-on high, WARNING/INFO are
-  # report-only, unknown severities fail closed. semgrep exit codes with
-  # --error: 0 = clean, 1 = findings (any severity), >1 = scanner error.
+  # and classifies severity: CRITICAL/HIGH/ERROR block under --fail-on high,
+  # MEDIUM/WARNING/LOW/INFO are report-only, unknown severities fail closed.
+  # semgrep exit codes with --error: 0 = clean, 1 = findings (any severity),
+  # >1 = scanner error.
   if SG_OUT="$(mktemp "${TMPDIR:-/tmp}/semgrep-out.XXXXXX")"; then
     semgrep scan \
       --config p/owasp-top-ten --config p/secrets --config p/javascript \
@@ -219,32 +223,44 @@ except Exception as e:  # malformed/partial JSON -> distinct exit for fail-close
     sys.stderr.write("semgrep JSON parse error: %s\n" % e)
     sys.exit(3)
 
-counts = {"ERROR": 0, "WARNING": 0, "INFO": 0}
+# Severity map: legacy (ERROR/WARNING/INFO) + newer semgrep severities
+# (CRITICAL/HIGH/MEDIUM/LOW). Anything outside these buckets fails closed.
+BLOCKING = ("CRITICAL", "HIGH", "ERROR")
+REPORT_ONLY = ("MEDIUM", "WARNING", "LOW", "INFO")
+counts = {s: 0 for s in BLOCKING + REPORT_ONLY}
 unknown = 0
 for r in data.get("results") or []:
     extra = r.get("extra") or {}
-    sev = (extra.get("severity") or "").strip().upper()
+    sev = str(extra.get("severity") or "").strip().upper()
     if sev in counts:
         counts[sev] += 1
-    else:  # future/unknown severity (e.g. CRITICAL) — fail closed
+        mark = "BLOCK" if sev in BLOCKING else "report-only"
+    else:  # future/unknown severity — fail closed
         unknown += 1
         sev = sev or "UNKNOWN"
+        mark = "BLOCK"
     loc = "%s:%s" % (r.get("path") or "?", (r.get("start") or {}).get("line") or "?")
-    mark = "BLOCK" if (sev == "ERROR" or sev not in counts) else "report-only"
     print("   [%s] %s %s %s" % (mark, sev, r.get("check_id") or "?", loc))
 if sum(counts.values()) + unknown == 0:
     # semgrep exited 1 (findings exist) yet we parsed none: the JSON shape
     # drifted (e.g. no/renamed "results" key). Fail closed as a parse failure.
     sys.stderr.write("semgrep reported findings but none parsed from JSON (schema drift?) — failing closed\n")
     sys.exit(3)
-print("   semgrep summary: %d ERROR (blocking), %d WARNING + %d INFO (report-only), %d unknown-severity (blocking)"
-      % (counts["ERROR"], counts["WARNING"], counts["INFO"], unknown))
-sys.exit(1 if (counts["ERROR"] + unknown) else 0)
+blocking = sum(counts[s] for s in BLOCKING)
+print("   semgrep summary: %d CRITICAL + %d HIGH + %d ERROR (blocking), %d MEDIUM + %d WARNING (report-only), %d LOW + %d INFO (report-only), %d unknown-severity (fail closed)"
+      % (counts["CRITICAL"], counts["HIGH"], counts["ERROR"],
+         counts["MEDIUM"], counts["WARNING"], counts["LOW"], counts["INFO"], unknown))
+if unknown:
+    # Severity string outside the known map: treat like schema drift — fail
+    # closed with the distinct parse-failure exit so the gate never guesses.
+    sys.stderr.write("semgrep finding(s) with unrecognized severity — failing closed\n")
+    sys.exit(3)
+sys.exit(1 if blocking else 0)
 PY_SG
           case $? in
-            0) echo "⚠️  semgrep: WARNING/INFO findings only (report-only under --fail-on $FAIL_ON)" ;;
-            1) SAST_BLOCK=1; echo "❌ semgrep: ERROR-severity findings" ;;
-            *) SAST_BLOCK=1; echo "❌ semgrep: could not parse scanner JSON — failing closed" ;;
+            0) echo "⚠️  semgrep: MEDIUM/WARNING/LOW/INFO findings only (report-only under --fail-on $FAIL_ON)" ;;
+            1) SAST_BLOCK=1; echo "❌ semgrep: CRITICAL/HIGH/ERROR-severity findings" ;;
+            *) SAST_BLOCK=1; echo "❌ semgrep: could not parse scanner JSON or unrecognized severity — failing closed" ;;
           esac
         else
           # No python3: cannot severity-gate; fail closed on ANY finding.
@@ -273,10 +289,10 @@ case "$FAIL_ON" in
   secrets) echo "PASS (secrets clean; deps/SAST report-only)"; exit 0 ;;
   high|*)
     # Severity-aware: deps block only on HIGH/CRITICAL (CVSS >= 7.0) osv vulns;
-    # SAST blocks only on ERROR-severity semgrep findings. Scanner errors,
-    # unparseable JSON, and unknown severities also block (fail loud/closed,
-    # never silently pass). Lower-severity findings are reported above only.
-    if [ "$DEPS_BLOCK" = 1 ] || [ "$SAST_BLOCK" = 1 ]; then echo "FAIL: HIGH/CRITICAL deps vulns or ERROR-severity SAST findings"; exit 1; fi
+    # SAST blocks only on CRITICAL/HIGH/ERROR-severity semgrep findings. Scanner
+    # errors, unparseable JSON, and unknown severities also block (fail loud/
+    # closed, never silently pass). Lower-severity findings are reported above only.
+    if [ "$DEPS_BLOCK" = 1 ] || [ "$SAST_BLOCK" = 1 ]; then echo "FAIL: HIGH/CRITICAL deps vulns or CRITICAL/HIGH/ERROR-severity SAST findings"; exit 1; fi
     if [ "$DEPS_FAIL" = 1 ] || [ "$SAST_FAIL" = 1 ]; then echo "PASS (lower-severity deps/SAST findings are report-only)"; exit 0; fi
     echo "PASS"; exit 0 ;;
 esac
