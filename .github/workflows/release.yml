@@ -53,8 +53,11 @@ jobs:
 
       # npm Trusted Publishing (OIDC) + provenance require npm >= 11.5.1, newer
       # than the npm bundled with Node 22. Upgrade it before the publish step.
+      # PINNED (not @latest): an unpinned upgrade shipped a broken sigstore
+      # dependency tree (MODULE_NOT_FOUND at publish), so the release lane
+      # inherits upstream breakage silently. Bump deliberately.
       - name: Upgrade npm (Trusted Publishing needs >= 11.5.1)
-        run: npm install -g npm@latest
+        run: npm install -g npm@11.6.2
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
