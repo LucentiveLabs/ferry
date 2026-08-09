@@ -238,6 +238,7 @@ export async function run(opts: RunOptions): Promise<RunResult> {
   // stdout and stderr (which a combined capture would reassemble) is caught.
   const engine = new RedactionEngine(targets);
   let openStreams = 0;
+  let lastDataSink: Writable | null = null;
   const consume = (readable: Readable | null | undefined, sink: Writable): StreamConsumer => {
     if (!readable) return { promise: Promise.resolve(), open: () => openStreams };
     openStreams++;
@@ -248,18 +249,24 @@ export async function run(opts: RunOptions): Promise<RunResult> {
         if (settled) return;
         settled = true;
         if (flushTail) {
-          const out = engine.push(decoder.end());
+          const decoded = decoder.end();
+          if (decoded) lastDataSink = sink;
+          const out = engine.push(decoded);
           if (out) sink.write(out);
         }
         openStreams--;
-        // The last stream to end releases the shared held-back tail.
+        // The last stream to end releases the shared held-back tail, but the
+        // tail belongs with the stream that supplied the last data. Otherwise
+        // an empty stderr that happens to close after stdout can steal all of a
+        // short stdout write, making captured stdout intermittently empty.
         if (openStreams === 0) {
           const tail = engine.flush();
-          if (tail) sink.write(tail);
+          if (tail) (lastDataSink ?? sink).write(tail);
         }
         resolve();
       };
       readable.on("data", (buf: Buffer) => {
+        if (buf.length > 0) lastDataSink = sink;
         const out = engine.push(decoder.write(buf));
         if (out) sink.write(out);
       });

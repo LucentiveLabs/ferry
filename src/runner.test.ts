@@ -1,7 +1,8 @@
+import { EventEmitter } from "node:events";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Writable } from "node:stream";
+import { PassThrough, Writable } from "node:stream";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -18,6 +19,36 @@ function makeSink() {
     },
   });
   return { w, text: () => Buffer.concat(chunks).toString("utf8") };
+}
+
+/**
+ * A child double whose selected stream produces the secret and ends before
+ * the other, empty stream. The real-process flake depends on exactly this
+ * close ordering.
+ */
+function dataThenEmptyStreamSpawn(
+  dataStream: "stdout" | "stderr",
+): typeof import("node:child_process").spawn {
+  return (() => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough;
+      stderr: PassThrough;
+    };
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+
+    const source = child[dataStream];
+    const empty = child[dataStream === "stdout" ? "stderr" : "stdout"];
+    source.once("end", () => {
+      empty.once("end", () => {
+        queueMicrotask(() => child.emit("close", 0, null));
+      });
+      empty.end();
+    });
+    queueMicrotask(() => source.end(SECRET_VALUE));
+
+    return child;
+  }) as unknown as typeof import("node:child_process").spawn;
 }
 
 const SECRET_VALUE = "supersecret123-DO-NOT-LEAK";
@@ -57,7 +88,10 @@ describe("run — the agent-safety guarantee", () => {
 
     // The child DID receive the value (it echoed something), but the agent
     // only ever sees the placeholder — never the value.
-    expect(out.text()).toContain("[redacted:MY_SECRET]");
+    expect(
+      out.text(),
+      `child result=${JSON.stringify(result)} stderr=${JSON.stringify(err.text())}`,
+    ).toContain("[redacted:MY_SECRET]");
     expect(out.text()).not.toContain(SECRET_VALUE);
 
     // Metadata is non-sensitive.
@@ -70,6 +104,50 @@ describe("run — the agent-safety guarantee", () => {
     expect(audit).toContain('"secret":"MY_SECRET"');
     expect(audit).toContain('"decision":"inject"');
     expect(audit).not.toContain(SECRET_VALUE);
+  });
+
+  it("keeps held stdout output on stdout when empty stderr closes later", async () => {
+    const out = makeSink();
+    const err = makeSink();
+
+    const result = await run({
+      config: config(),
+      commandArgv: ["fake-child"],
+      deps: {
+        env: { MY_SECRET: SECRET_VALUE },
+        stdout: out.w,
+        stderr: err.w,
+        now: () => 0,
+        spawnFn: dataThenEmptyStreamSpawn("stdout"),
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(out.text()).toContain("[redacted:MY_SECRET]");
+    expect(out.text()).not.toContain(SECRET_VALUE);
+    expect(err.text()).toBe("");
+  });
+
+  it("keeps held stderr output on stderr when empty stdout closes later", async () => {
+    const out = makeSink();
+    const err = makeSink();
+
+    const result = await run({
+      config: config(),
+      commandArgv: ["fake-child"],
+      deps: {
+        env: { MY_SECRET: SECRET_VALUE },
+        stdout: out.w,
+        stderr: err.w,
+        now: () => 0,
+        spawnFn: dataThenEmptyStreamSpawn("stderr"),
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(err.text()).toContain("[redacted:MY_SECRET]");
+    expect(err.text()).not.toContain(SECRET_VALUE);
+    expect(out.text()).toBe("");
   });
 
   it("propagates the child's non-zero exit code", async () => {
