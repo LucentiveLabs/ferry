@@ -27,6 +27,7 @@ describe("release workflow security prerequisites", () => {
     const changesetsAction = releaseWorkflow.indexOf(
       "- name: Create Release PR or Publish to npm",
     );
+    const scannerStep = releaseWorkflow.slice(scannerInstall, dependencyInstall);
 
     expect(scannerInstall).toBeGreaterThan(-1);
     expect(scannerInstall).toBeLessThan(dependencyInstall);
@@ -35,19 +36,31 @@ describe("release workflow security prerequisites", () => {
     expect(releaseWorkflow).toContain(
       'base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"',
     );
-    expect(releaseWorkflow).toContain(
-      'curl -fsSL -o gitleaks.tgz "${base}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"',
+    expect(scannerStep).toContain(
+      'tool_dir="$(mktemp -d "${RUNNER_TEMP}/ferry-gitleaks.XXXXXX")"',
     );
-    expect(releaseWorkflow).toContain(
-      'curl -fsSL -o gitleaks_checksums.txt "${base}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"',
+    expect(scannerStep).toContain('archive="${tool_dir}/gitleaks.tgz"');
+    expect(scannerStep).toContain(
+      'checksums="${tool_dir}/gitleaks_checksums.txt"',
     );
-    expect(releaseWorkflow).toContain(
-      "gitleaks_checksums.txt | sha256sum -c -",
+    expect(scannerStep).toContain(
+      'curl -fsSL -o "${archive}" "${base}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"',
     );
-    expect(releaseWorkflow).toContain(
-      "tar -xzf gitleaks.tgz -C /usr/local/bin gitleaks",
+    expect(scannerStep).toContain(
+      'curl -fsSL -o "${checksums}" "${base}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"',
     );
-    expect(releaseWorkflow).toContain("gitleaks version");
-    expect(releaseWorkflow).not.toMatch(/--no-verify|HUSKY=0|SKIP_GITLEAKS/);
+    expect(scannerStep).toContain('"${checksums}" | sha256sum -c -');
+    expect(scannerStep).toContain(
+      'tar -xzf "${archive}" -C /usr/local/bin gitleaks',
+    );
+    expect(scannerStep).toContain("gitleaks version");
+
+    // changesets/action stages the whole worktree with `git add .`. Keeping
+    // every downloaded tool artifact under RUNNER_TEMP ensures the generated
+    // Version Packages commit cannot accidentally include either file.
+    expect(scannerStep).not.toMatch(/curl[^\n]+-o\s+gitleaks(?:\.tgz|_checksums\.txt)/);
+    expect(scannerStep).not.toMatch(/tar\s+-xzf\s+gitleaks\.tgz/);
+    expect(scannerStep).not.toContain("${GITHUB_WORKSPACE}");
+    expect(scannerStep).not.toMatch(/--no-verify|HUSKY=0|SKIP_GITLEAKS/);
   });
 });
