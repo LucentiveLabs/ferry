@@ -26,8 +26,8 @@ prompts, shell history, logs, or captured terminal output.
 The outcome is concrete: the intended child receives only the declared secrets
 whose positional command policy matches; a denied or excluded declared secret
 does not leak through the ambient environment; output is redacted across chunk
-and stream boundaries; and every decision can be inspected without recording a
-secret value or caller-controlled arguments.
+and stream boundaries; and every run-time injection or denial decision can be
+inspected without recording a secret value or caller-controlled arguments.
 
 ## Smallest Lovable Product
 
@@ -41,7 +41,8 @@ The current bounded product is the portable, zero-runtime-dependency OSS CLI:
 - `--only` and `--clean-env` narrow the authority and ambient environment;
 - `ferry cache` supports approved headless reuse through the encrypted file
   backend; and
-- `ferry audit` gives the operator a bounded decision history.
+- `ferry audit` gives the operator a bounded run-time injection and denial
+  history.
 
 That loop must work from package install through a real allowed and denied child
 command. A passing parser unit test, package page, generated config, or encrypted
@@ -63,6 +64,12 @@ As of 2026-08-10:
 - The encrypted-file master key still comes from `FERRY_FILE_KEY`; OS-keychain
   custody, rotation, hosted service, team sync, cloud secret backends, and GUI
   are not implemented.
+- `ferry check` and `ferry cache` resolve plaintext from their configured
+  backends but do not currently append audit rows. The audit covers `ferry run`
+  injection and denial decisions, not every backend read or cache mutation.
+- The hosted security workflow blocks leaked secrets and reports dependency and
+  SAST findings under its v1 policy. A full dependency/SAST blocking scan is a
+  separate release-candidate receipt until the hosted policy is strengthened.
 - The public package is usable without an account, hosted control plane, sales
   workflow, or Lucentive One session.
 
@@ -73,8 +80,9 @@ north-star extensions may not.
 ## Required End-To-End User Journey
 
 1. The user installs the exact package and reads its threat boundary.
-2. `ferry init` produces an ignored local state directory and editable trusted
-   policy without printing or inventing a secret.
+2. `ferry init` produces an editable trusted policy and adds `.ferry/` to the
+   ignore file without printing or inventing a secret. The state directory is
+   created lazily by the first audit or cache write.
 3. The user assigns each declared secret a backend and the narrow command argv
    patterns that may receive it.
 4. `ferry check` shows resolution success or a named, actionable failure without
@@ -87,8 +95,10 @@ north-star extensions may not.
    with explicit custody, verifies the encrypted store, and repeats the command
    without a biometric prompt or plaintext persistence.
 8. The user can inspect, rotate or remove the backend value, tighten policy,
-   delete cached state, upgrade, and report a vulnerability through a private
-   channel without losing the audit trail.
+   upgrade, and report a vulnerability through a private channel without losing
+   the audit trail. Cache rotation re-runs `ferry cache`; removing cached state
+   is currently a manual deletion of the encrypted store rather than a
+   per-secret `uncache` command.
 
 ## Maintainer And Release Journey
 
@@ -130,8 +140,9 @@ A Ferry release is a `complete-surface-only` product increment when:
 - every new authority path has denial, ambient-env, output-boundary, audit, and
   secret-negative coverage proportional to its risk;
 - the README threat model and current limitations match the exact code;
-- typecheck, tests, package lint, and full security scan pass at the release
-  head;
+- typecheck, tests, package lint, the hosted secret-blocking/reporting security
+  policy, and an attached full dependency/SAST blocking scan pass for the exact
+  release candidate;
 - npm version, `latest`, provenance, and a clean install are verified after
   publication; and
 - no completion claim implies the hosted, team, rotation, keychain, or cloud

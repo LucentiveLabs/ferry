@@ -37,4 +37,46 @@ npm view @lucentive-labs/ferry                     # version is live
 npm view @lucentive-labs/ferry dist.attestations   # provenance present
 ```
 
+Then verify the published tarball, not the source checkout. Replace `0.1.1`
+with the version just published; the sentinel below is test data, not a secret.
+
+```sh
+release_smoke_dir="$(mktemp -d)"
+cd "$release_smoke_dir"
+npm init -y >/dev/null
+npm install --save-exact @lucentive-labs/ferry@0.1.1 >/dev/null
+./node_modules/.bin/ferry --version
+./node_modules/.bin/ferry --help >/dev/null
+./node_modules/.bin/ferry init
+
+cat > ferry.config.mjs <<'EOF'
+import { defineFerry, env } from "@lucentive-labs/ferry";
+export default defineFerry({
+  secrets: {
+    RELEASE_SMOKE: { backend: env(), allow: ["node *"] },
+  },
+  audit: ".ferry/audit.log",
+});
+EOF
+
+export RELEASE_SMOKE="ferry-published-smoke-sentinel"
+allowed_output="$(./node_modules/.bin/ferry run --only RELEASE_SMOKE -- \
+  node -e 'process.stdout.write(process.env.RELEASE_SMOKE)')"
+test "$allowed_output" = "[redacted:RELEASE_SMOKE]"
+
+if ./node_modules/.bin/ferry run --only RELEASE_SMOKE -- sh -c 'exit 0'; then
+  echo "denied command unexpectedly ran" >&2
+  exit 1
+fi
+./node_modules/.bin/ferry audit --tail 2
+if grep -R "ferry-published-smoke-sentinel" .ferry; then
+  echo "sentinel leaked into Ferry state" >&2
+  exit 1
+fi
+```
+
+The smoke must show the exact published version, redact the allowed value,
+refuse the denied command, and record `inject` plus `deny` rows without the
+sentinel or raw argv. Remove the validated `release_smoke_dir` afterward.
+
 Docs & homepage: https://labs.lucentive.io/libraries/ferry

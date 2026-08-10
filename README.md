@@ -27,7 +27,7 @@ pluggable backends and are never persisted by Ferry in plaintext.
 pnpm add @lucentive-labs/ferry
 ```
 
-`@lucentive-labs/ferry@0.1.0` is published publicly on npm. The package is also
+`@lucentive-labs/ferry` is published publicly on npm. The package is also
 available from source for contributors: clone this repository, run
 `pnpm install && pnpm build`, then use `node dist/cli.js …` (or
 `pnpm link --global` to install the `ferry` command locally).
