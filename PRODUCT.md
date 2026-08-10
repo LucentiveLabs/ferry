@@ -52,7 +52,7 @@ file alone is not the Ferry product.
 
 As of 2026-08-10:
 
-- `@lucentive-labs/ferry@0.1.1` is public on npm as `latest`, published through
+- `@lucentive-labs/ferry@0.1.2` is public on npm as `latest`, published through
   npm Trusted Publishing with provenance.
 - The CLI and library are implemented with Node built-ins at runtime and cover
   config loading, three backends, positional policy, owned declared-env
@@ -73,7 +73,7 @@ As of 2026-08-10:
 - The public package is usable without an account, hosted control plane, sales
   workflow, or Lucentive One session.
 
-Verdict: Ferry is a real, bounded OSS product at v0.1.1, not a hosted secret
+Verdict: Ferry is a real, bounded OSS product at v0.1.2, not a hosted secret
 platform. Its current CLI surface may be described as shipped; unimplemented
 north-star extensions may not.
 

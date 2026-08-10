@@ -37,7 +37,7 @@ npm view @lucentive-labs/ferry                     # version is live
 npm view @lucentive-labs/ferry dist.attestations   # provenance present
 ```
 
-Then verify the published tarball, not the source checkout. Replace `0.1.1`
+Then verify the published tarball, not the source checkout. Replace `0.1.2`
 with the version just published; the sentinel below is test data, not a secret.
 
 ```sh
@@ -45,9 +45,11 @@ set -eu
 release_smoke_dir="$(mktemp -d)"
 cd "$release_smoke_dir"
 npm init -y >/dev/null
-npm install --save-exact @lucentive-labs/ferry@0.1.1 >/dev/null
+published_latest="$(npm view @lucentive-labs/ferry dist-tags.latest)"
+test "$published_latest" = "0.1.2"
+npm install --save-exact @lucentive-labs/ferry@0.1.2 >/dev/null
 published_version="$(./node_modules/.bin/ferry --version)"
-test "$published_version" = "0.1.1"
+test "$published_version" = "0.1.2"
 printf '%s\n' "$published_version"
 ./node_modules/.bin/ferry --help >/dev/null
 ./node_modules/.bin/ferry init
