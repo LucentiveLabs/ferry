@@ -41,6 +41,7 @@ Then verify the published tarball, not the source checkout. Replace `0.1.1`
 with the version just published; the sentinel below is test data, not a secret.
 
 ```sh
+set -euo pipefail
 release_smoke_dir="$(mktemp -d)"
 cd "$release_smoke_dir"
 npm init -y >/dev/null
