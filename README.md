@@ -3,6 +3,9 @@
 **Agent-era secrets broker.** A secret should be usable by an agent or an
 automation without ever being _visible_ to it.
 
+Product promise, shipped boundary, and depth roadmap:
+[`PRODUCT.md`](https://github.com/LucentiveLabs/ferry/blob/main/PRODUCT.md).
+
 Ferry runs your command as a **child process** and injects declared secrets
 into that child's environment. The value reaches `vercel` / `convex` / `curl`,
 but it never touches Ferry's own stdout, its logs, the audit file, or the
@@ -24,7 +27,7 @@ pluggable backends and are never persisted by Ferry in plaintext.
 pnpm add @lucentive-labs/ferry
 ```
 
-`@lucentive-labs/ferry@0.1.0` is published publicly on npm. The package is also
+`@lucentive-labs/ferry` is published publicly on npm. The package is also
 available from source for contributors: clone this repository, run
 `pnpm install && pnpm build`, then use `node dist/cli.js …` (or
 `pnpm link --global` to install the `ferry` command locally).
