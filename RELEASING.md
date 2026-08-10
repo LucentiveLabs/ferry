@@ -41,12 +41,14 @@ Then verify the published tarball, not the source checkout. Replace `0.1.1`
 with the version just published; the sentinel below is test data, not a secret.
 
 ```sh
-set -euo pipefail
+set -eu
 release_smoke_dir="$(mktemp -d)"
 cd "$release_smoke_dir"
 npm init -y >/dev/null
 npm install --save-exact @lucentive-labs/ferry@0.1.1 >/dev/null
-./node_modules/.bin/ferry --version
+published_version="$(./node_modules/.bin/ferry --version)"
+test "$published_version" = "0.1.1"
+printf '%s\n' "$published_version"
 ./node_modules/.bin/ferry --help >/dev/null
 ./node_modules/.bin/ferry init
 
@@ -69,7 +71,16 @@ if ./node_modules/.bin/ferry run --only RELEASE_SMOKE -- sh -c 'exit 0'; then
   echo "denied command unexpectedly ran" >&2
   exit 1
 fi
-./node_modules/.bin/ferry audit --tail 2
+audit_output="$(./node_modules/.bin/ferry audit --tail 2)"
+printf '%s\n' "$audit_output"
+case "$audit_output" in
+  *inject*RELEASE_SMOKE*) ;;
+  *) echo "missing inject audit row" >&2; exit 1 ;;
+esac
+case "$audit_output" in
+  *deny*RELEASE_SMOKE*) ;;
+  *) echo "missing deny audit row" >&2; exit 1 ;;
+esac
 if grep -R "ferry-published-smoke-sentinel" .ferry; then
   echo "sentinel leaked into Ferry state" >&2
   exit 1
