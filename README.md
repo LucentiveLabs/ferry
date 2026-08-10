@@ -3,6 +3,9 @@
 **Agent-era secrets broker.** A secret should be usable by an agent or an
 automation without ever being _visible_ to it.
 
+Product promise, shipped boundary, and depth roadmap:
+[`PRODUCT.md`](./PRODUCT.md).
+
 Ferry runs your command as a **child process** and injects declared secrets
 into that child's environment. The value reaches `vercel` / `convex` / `curl`,
 but it never touches Ferry's own stdout, its logs, the audit file, or the
