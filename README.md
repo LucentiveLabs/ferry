@@ -4,7 +4,7 @@
 automation without ever being _visible_ to it.
 
 Product promise, shipped boundary, and depth roadmap:
-[`PRODUCT.md`](./PRODUCT.md).
+[`PRODUCT.md`](https://github.com/LucentiveLabs/ferry/blob/main/PRODUCT.md).
 
 Ferry runs your command as a **child process** and injects declared secrets
 into that child's environment. The value reaches `vercel` / `convex` / `curl`,
