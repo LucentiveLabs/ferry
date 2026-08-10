@@ -1,5 +1,12 @@
 # @lucentive-labs/ferry
 
+## 0.1.2
+
+### Patch Changes
+
+- 39c232a: Publish the canonical product boundary, correct the public release truth, and
+  add a fail-closed post-publication smoke for the packaged CLI.
+
 ## 0.1.1
 
 ### Patch Changes
