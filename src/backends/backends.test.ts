@@ -60,6 +60,13 @@ describe("FileBackend", () => {
     await expect(backend.resolve("NOPE")).rejects.toThrow(/no cached secret named "NOPE"/);
   });
 
+  it("throws on a corrupt store instead of treating it as empty", async () => {
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(store, "{not json\n", "utf8");
+    const backend = new FileBackend({ path: store, key: "k" });
+    await expect(backend.resolve("K")).rejects.toThrow(/corrupt or unreadable/);
+  });
+
   it.skipIf(process.platform === "win32")(
     "enforces 0600 even on a pre-existing loose-mode store",
     async () => {
