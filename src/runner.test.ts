@@ -1,3 +1,4 @@
+import type { SpawnOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,6 +29,7 @@ function makeSink() {
  */
 function dataThenEmptyStreamSpawn(
   dataStream: "stdout" | "stderr",
+  data = SECRET_VALUE,
 ): typeof import("node:child_process").spawn {
   return (() => {
     const child = new EventEmitter() as EventEmitter & {
@@ -45,7 +47,7 @@ function dataThenEmptyStreamSpawn(
       });
       empty.end();
     });
-    queueMicrotask(() => source.end(SECRET_VALUE));
+    queueMicrotask(() => source.end(data));
 
     return child;
   }) as unknown as typeof import("node:child_process").spawn;
@@ -61,6 +63,7 @@ describe("run — the agent-safety guarantee", () => {
     auditPath = join(dir, "audit.log");
   });
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     rmSync(dir, { recursive: true, force: true });
   });
@@ -450,6 +453,72 @@ describe("run — the agent-safety guarantee", () => {
     expect(audit).toContain('"decision":"inject"');
     for (const value of [ambient, SECRET_VALUE]) {
       expect(out.text() + err.text() + audit + JSON.stringify(result)).not.toContain(value);
+    }
+  });
+
+  it.each([
+    { platform: "win32", cleanEnv: false, excluded: false },
+    { platform: "win32", cleanEnv: true, excluded: false },
+    { platform: "win32", cleanEnv: false, excluded: true },
+    { platform: "win32", cleanEnv: true, excluded: true },
+    { platform: "linux", cleanEnv: false, excluded: false },
+    { platform: "linux", cleanEnv: true, excluded: false },
+    { platform: "linux", cleanEnv: false, excluded: true },
+    { platform: "linux", cleanEnv: true, excluded: true },
+  ])("respects $platform env-name casing (clean=$cleanEnv, excluded=$excluded)", async ({ platform, cleanEnv, excluded }) => {
+    const out = makeSink();
+    const ambient = {
+      USERPROFILE: "synthetic-profile",
+      UserProfile: "synthetic-other-profile",
+      APPDATA: "synthetic-appdata",
+      LOCALAPPDATA: "synthetic-local-appdata",
+      ferry_file_key: "synthetic-file-key",
+      Ferry_Debug: "synthetic-debug",
+    };
+    // Simulate the platform and ambient environment without changing real OS
+    // variables or spawning a platform-specific executable.
+    vi.stubGlobal("process", { ...process, platform, env: ambient });
+    let childEnv: NodeJS.ProcessEnv | undefined;
+    const spawnFn = ((cmd: string, args: readonly string[], opts: SpawnOptions) => {
+      childEnv = opts.env;
+      return dataThenEmptyStreamSpawn("stdout", JSON.stringify(childEnv))(cmd, args, opts);
+    }) as unknown as typeof import("node:child_process").spawn;
+    const resolveSecret = vi.fn(async () => SECRET_VALUE);
+    const result = await run({
+      config: {
+        secrets: {
+          ALIAS: { backend: env("userprofile"), allow: ["approved *"] },
+          appdata: { backend: env(), allow: ["approved *"] },
+          localappdata: { backend: env("injected_source"), allow: ["*"] },
+        },
+        audit: auditPath,
+      },
+      commandArgv: ["fake-child"],
+      cleanEnv,
+      only: excluded ? ["localappdata"] : undefined,
+      deps: { resolveSecret, spawnFn, stdout: out.w, stderr: out.w, now: () => 0 },
+    });
+
+    const expected: NodeJS.ProcessEnv = { localappdata: SECRET_VALUE };
+    if (platform !== "win32") {
+      Object.assign(expected, ambient);
+      if (cleanEnv) {
+        delete expected.UserProfile;
+        delete expected.ferry_file_key;
+        delete expected.Ferry_Debug;
+      }
+    }
+    expect(childEnv).toEqual(expected);
+    expect(result.exitCode).toBe(0);
+    expect(result.injected).toEqual(["localappdata"]);
+    expect(result.denied).toEqual(excluded ? [] : ["ALIAS", "appdata"]);
+    expect(resolveSecret.mock.calls).toEqual([["localappdata", env("injected_source")]]);
+    expect(out.text()).toContain("[redacted:localappdata]");
+    const audit = readFileSync(auditPath, "utf8");
+    expect(audit).toContain('"decision":"inject"');
+    expect(out.text() + audit + JSON.stringify(result)).not.toContain(SECRET_VALUE);
+    if (platform === "win32") {
+      for (const value of Object.values(ambient)) expect(out.text()).not.toContain(value);
     }
   });
 

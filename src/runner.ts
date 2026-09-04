@@ -123,12 +123,19 @@ function buildChildEnv(
     }
   }
 
-  const strip = new Set<string>(BROKER_ENV_VARS);
+  // Windows child env names are case-insensitive, including when the env is
+  // supplied as a plain object. Remove every ambient spelling before injection.
+  const ownedName = process.platform === "win32"
+    ? (name: string) => name.toUpperCase()
+    : (name: string) => name;
+  const strip = new Set<string>(BROKER_ENV_VARS.map(ownedName));
   for (const [name, def] of Object.entries(config.secrets)) {
-    strip.add(name);
-    if (def.backend.kind === "env") strip.add(def.backend.ref || name);
+    strip.add(ownedName(name));
+    if (def.backend.kind === "env") strip.add(ownedName(def.backend.ref || name));
   }
-  for (const key of strip) delete env[key];
+  for (const key of Object.keys(env)) {
+    if (strip.has(ownedName(key))) delete env[key];
+  }
   return Object.assign(env, injectedEnv);
 }
 
