@@ -99,28 +99,28 @@ function redactString(input: string, targets: RedactionTarget[]): string {
 /**
  * Build the child's environment.
  *
- * In the default (passthrough) mode Ferry OWNS every secret-related var: it
+ * In both ambient modes Ferry OWNS every secret-related var: it
  * deletes every declared secret's destination NAME, every `env()` backend
  * SOURCE ref, and its own broker vars — THEN adds back only the injected
  * (policy-allowed) values. So a secret that policy DENIED, or that `--only`
  * excluded, or that a differently-named alias would have carried, can never
  * leak to the child through the ambient environment.
  *
- * In `cleanEnv` mode only a small safe allowlist is forwarded plus the injected
- * values, shrinking the blast radius of undeclared ambient secrets too.
+ * In `cleanEnv` mode the ambient base is limited to a small safe allowlist
+ * before ownership stripping, shrinking the blast radius of undeclared
+ * ambient secrets too.
  */
 function buildChildEnv(
   config: FerryConfig,
   injectedEnv: Record<string, string>,
   cleanEnv: boolean,
 ): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = cleanEnv ? {} : { ...process.env };
   if (cleanEnv) {
-    const env: NodeJS.ProcessEnv = {};
     for (const key of CLEAN_ENV_PASSTHROUGH) {
       const v = process.env[key];
       if (v !== undefined) env[key] = v;
     }
-    return Object.assign(env, injectedEnv);
   }
 
   const strip = new Set<string>(BROKER_ENV_VARS);
@@ -128,7 +128,6 @@ function buildChildEnv(
     strip.add(name);
     if (def.backend.kind === "env") strip.add(def.backend.ref || name);
   }
-  const env: NodeJS.ProcessEnv = { ...process.env };
   for (const key of strip) delete env[key];
   return Object.assign(env, injectedEnv);
 }
