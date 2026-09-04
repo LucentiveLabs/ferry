@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough, Writable } from "node:stream";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { env, op, type FerryConfig } from "./schema";
 import { run } from "./runner";
@@ -61,6 +61,7 @@ describe("run — the agent-safety guarantee", () => {
     auditPath = join(dir, "audit.log");
   });
   afterEach(() => {
+    vi.unstubAllEnvs();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -369,6 +370,87 @@ describe("run — the agent-safety guarantee", () => {
       deps: { env: { MY_SECRET: SECRET_VALUE }, stdout: out.w, stderr: out.w, now: () => 0 },
     });
     expect(result.exitCode).toBe(143); // 128 + 15 (SIGTERM)
+  });
+
+  it.each([
+    { reason: "denied", name: "USERPROFILE", source: "SOURCE_SECRET" },
+    { reason: "denied", name: "ALIASED_SECRET", source: "USERPROFILE" },
+    { reason: "excluded", name: "USERPROFILE", source: "SOURCE_SECRET" },
+    { reason: "excluded", name: "ALIASED_SECRET", source: "USERPROFILE" },
+  ])("cleanEnv strips $reason ownership of $name from the safe base", async ({ reason, name, source }) => {
+    const out = makeSink();
+    const err = makeSink();
+    const ambient = "SYNTHETIC-AMBIENT-DO-NOT-FORWARD";
+    vi.stubEnv("USERPROFILE", ambient);
+    const resolveSecret = vi.fn(async () => SECRET_VALUE);
+    const result = await run({
+      config: {
+        secrets: {
+          [name]: { backend: env(source), allow: ["vercel *"] },
+          MY_SECRET: { backend: env("MY_SECRET"), allow: ["*"] },
+        },
+        audit: auditPath,
+      },
+      cleanEnv: true,
+      only: reason === "excluded" ? ["MY_SECRET"] : undefined,
+      commandArgv: [
+        process.execPath,
+        "-e",
+        "process.stdout.write(String(process.env.USERPROFILE)+'|'+process.env.MY_SECRET)",
+      ],
+      deps: { resolveSecret, stdout: out.w, stderr: err.w, now: () => 0 },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.injected).toEqual(["MY_SECRET"]);
+    expect(result.denied).toEqual(reason === "denied" ? [name] : []);
+    expect(resolveSecret.mock.calls).toEqual([["MY_SECRET", env("MY_SECRET")]]);
+    expect(out.text()).toBe("undefined|[redacted:MY_SECRET]");
+    expect(err.text()).toBe("");
+    const audit = readFileSync(auditPath, "utf8");
+    expect(audit).toContain('"decision":"inject"');
+    if (reason === "denied") {
+      expect(audit).toContain('"decision":"deny"');
+    } else {
+      expect(audit).not.toContain(name);
+    }
+    for (const value of [ambient, SECRET_VALUE]) {
+      expect(out.text() + err.text() + audit + JSON.stringify(result)).not.toContain(value);
+    }
+  });
+
+  it.each([
+    { name: "USERPROFILE", source: "SOURCE_SECRET" },
+    { name: "ALIASED_SECRET", source: "USERPROFILE" },
+  ])("cleanEnv reinjects and redacts authorized $name after stripping the safe base", async ({ name, source }) => {
+    const out = makeSink();
+    const err = makeSink();
+    const ambient = "SYNTHETIC-AMBIENT-DO-NOT-FORWARD";
+    vi.stubEnv("USERPROFILE", ambient);
+    const result = await run({
+      config: {
+        secrets: { [name]: { backend: env(source), allow: ["*"] } },
+        audit: auditPath,
+      },
+      cleanEnv: true,
+      commandArgv: [
+        process.execPath,
+        "-e",
+        `process.stdout.write(String(process.env.${source})+'|'+process.env.${name})`,
+      ],
+      deps: { env: { [source]: SECRET_VALUE }, stdout: out.w, stderr: err.w, now: () => 0 },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.injected).toEqual([name]);
+    expect(result.denied).toEqual([]);
+    expect(out.text()).toBe(`undefined|[redacted:${name}]`);
+    expect(err.text()).toBe("");
+    const audit = readFileSync(auditPath, "utf8");
+    expect(audit).toContain('"decision":"inject"');
+    for (const value of [ambient, SECRET_VALUE]) {
+      expect(out.text() + err.text() + audit + JSON.stringify(result)).not.toContain(value);
+    }
   });
 
   it("cleanEnv forwards only a safe base env plus injected secrets", async () => {
