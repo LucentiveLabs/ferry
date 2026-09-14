@@ -26,16 +26,25 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  id-token: write # OIDC token for npm Trusted Publishing + provenance
-  contents: write # changesets/action pushes the version PR / tags / releases
-  pull-requests: write # changesets/action opens the "Version Packages" PR
+  contents: read
 
 env:
   GITLEAKS_VERSION: "8.30.1"
 
 jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+
+  security:
+    uses: ./.github/workflows/security-gate.yml
+
   release:
     name: Release
+    needs: [verify, security]
+    permissions:
+      id-token: write # OIDC token for npm Trusted Publishing + provenance
+      contents: write # changesets/action pushes version PR / tags / releases
+      pull-requests: write # changesets/action opens the version PR
     # Only ever runs on main in the LucentiveLabs org. The publish step no-ops
     # until a Version PR merges and the Trusted Publisher (above) is configured.
     if: ${{ github.ref == 'refs/heads/main' && github.repository_owner == 'LucentiveLabs' }}

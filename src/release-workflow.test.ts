@@ -10,12 +10,28 @@ const securityWorkflow = readFileSync(
   resolve(process.cwd(), ".github/workflows/security-gate.yml"),
   "utf8",
 );
+const ciWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/ci.yml"), "utf8");
 
 function gitleaksVersion(workflow: string): string | undefined {
   return workflow.match(/^  GITLEAKS_VERSION: "([^"]+)"$/m)?.[1];
 }
 
 describe("release workflow security prerequisites", () => {
+  it("makes the privileged publish job depend on the candidate's full CI and security jobs", () => {
+    // Local reusable workflows resolve at the caller's commit. The publish
+    // job must depend on both, without an always() escape from a failed gate.
+    expect(releaseWorkflow).toMatch(/verify:\n\s+uses: \.\/\.github\/workflows\/ci\.yml/);
+    expect(releaseWorkflow).toMatch(/security:\n\s+uses: \.\/\.github\/workflows\/security-gate\.yml/);
+    expect(releaseWorkflow).toMatch(/release:\n\s+name: Release\n\s+needs: \[verify, security\]/);
+    expect(releaseWorkflow).not.toContain("always()");
+    expect(ciWorkflow).toMatch(/^  workflow_call:/m);
+    expect(securityWorkflow).toMatch(/^  workflow_call:/m);
+    expect(ciWorkflow).toContain("pnpm typecheck");
+    expect(ciWorkflow).toContain("pnpm test");
+    expect(ciWorkflow).toContain("node scripts/check-publish.mjs");
+    expect(securityWorkflow).toContain("scripts/security-scan.sh --mode full --fail-on high");
+  });
+
   it("installs the checksum-verified pinned gitleaks binary before a hook can commit", () => {
     expect(gitleaksVersion(releaseWorkflow)).toBe("8.30.1");
     expect(gitleaksVersion(releaseWorkflow)).toBe(gitleaksVersion(securityWorkflow));

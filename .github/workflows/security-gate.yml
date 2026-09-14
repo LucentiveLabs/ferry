@@ -13,6 +13,7 @@ name: security-gate
 
 on:
   pull_request:
+  workflow_call:
   workflow_dispatch:
   schedule:
     # Weekly recurring scan (C5) — Mon 06:00 UTC. Catches newly-disclosed
@@ -23,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: security-gate-${{ github.ref }}
+  group: security-gate-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
