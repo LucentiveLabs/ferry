@@ -94,4 +94,32 @@ describe("Redactor", () => {
       expect(out.endsWith(" y")).toBe(true);
     }
   });
+
+  it("does not expose another target through a later name-bearing placeholder", async () => {
+    const targets = [{ name: "A", value: "FOO" }, { name: "FOO", value: "x" }];
+    for (const order of [targets, [...targets].reverse()]) {
+      for (let split = 0; split <= 5; split += 1) {
+        const input = "FOO x";
+        const out = await pipeThrough(order, [input.slice(0, split), input.slice(split)]);
+        for (const target of targets) expect(out).not.toContain(target.value);
+      }
+    }
+  });
+
+  it("does not assemble a fresh secret at placeholder boundaries", async () => {
+    const targets = [{ name: "A", value: "]z" }, { name: "B", value: "long-secret" }];
+    const input = "long-secretz";
+    for (let split = 0; split <= input.length; split += 1) {
+      const out = await pipeThrough(targets, [input.slice(0, split), input.slice(split)]);
+      for (const target of targets) expect(out).not.toContain(target.value);
+    }
+  });
+
+  it("finds a safe mask when every usual mask character is also a secret", async () => {
+    const targets = ["redacted", "•", "*", "#", "×", "▪", "·", "‡", "�"].map((value, index) => ({ name: `K${index}`, value }));
+    const input = targets.map((target) => target.value).join(" ");
+    const out = await pipeThrough(targets, Array.from(input));
+    for (const target of targets) expect(out).not.toContain(target.value);
+    expect(out.length).toBeGreaterThan(0);
+  });
 });

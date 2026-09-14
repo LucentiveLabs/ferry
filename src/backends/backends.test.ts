@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -92,7 +92,7 @@ describe("OpBackend", () => {
     });
     const backend = new OpBackend(exec);
     await expect(backend.resolve("op://Vault/Missing/field")).rejects.toThrow(
-      /op backend: failed to read "op:\/\/Vault\/Missing\/field": could not read item/,
+      /op backend: failed to read "op:\/\/Vault\/Missing\/field": command failed/,
     );
   });
 
@@ -100,5 +100,33 @@ describe("OpBackend", () => {
     const exec = vi.fn<OpExec>(async () => ({ stdout: "   \n", stderr: "" }));
     const backend = new OpBackend(exec);
     await expect(backend.resolve("op://V/I/f")).rejects.toThrow(/empty value/);
+  });
+
+  it("never returns an injected executor's raw diagnostic text", async () => {
+    const secret = "synthetic-provider-sensitive-value";
+    const backend = new OpBackend(async () => { throw new Error(secret); });
+    const error = await backend.resolve("op://V/I/f").catch((cause: unknown) => cause);
+    expect(String(error)).not.toContain(secret);
+    expect(String(error)).toContain("command failed");
+  });
+
+  it.skipIf(process.platform === "win32")("suppresses real child diagnostics even with FERRY_DEBUG", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ferry-op-error-"));
+    const secret = "synthetic-op-stderr-value";
+    const previousPath = process.env.PATH;
+    const previousDebug = process.env.FERRY_DEBUG;
+    try {
+      writeFileSync(join(dir, "op"), `#!/bin/sh\nprintf '%s' '${secret}' >&2\nexit 7\n`, { mode: 0o700 });
+      process.env.PATH = dir;
+      process.env.FERRY_DEBUG = "1";
+      const error = await new OpBackend().resolve("op://V/I/f").catch((cause: unknown) => cause);
+      expect(String(error)).toContain("exit 7");
+      expect(String(error)).not.toContain(secret);
+      expect(String(error)).not.toContain("FERRY_DEBUG");
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
+      if (previousDebug === undefined) delete process.env.FERRY_DEBUG; else process.env.FERRY_DEBUG = previousDebug;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
