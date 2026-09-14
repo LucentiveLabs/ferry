@@ -18,16 +18,22 @@ export interface RedactionTarget {
  * emit an opaque mask built from a character the value does NOT contain, so the
  * mask can never reproduce it.
  */
-export function placeholderFor(
+export function placeholderFor(name: string, value: string): string {
+  return placeholderForValues(name, value, [value]);
+}
+
+function placeholderForValues(
   name: string,
   value: string,
-  protectedValues: readonly string[] = [value],
+  protectedValues: readonly string[],
 ): string {
   const values = protectedValues.filter((candidate) => candidate.length > 0);
   const base = `[redacted:${name}]`;
   // The delimiters also have to be absent from every value: otherwise a
   // placeholder and its neighbour could assemble a fresh secret such as ]x.
-  if (values.every((candidate) => !base.includes(candidate) && !candidate.includes("[") && !candidate.includes("]"))) {
+  if (values.every((candidate) =>
+    !base.includes(candidate) && !candidate.includes("[") && !candidate.includes("]"),
+  )) {
     return base;
   }
   const pool = ["•", "*", "#", "×", "▪", "·", "‡", "�"];
@@ -71,7 +77,7 @@ export class RedactionEngine {
     this.targets = targets
       .filter((t) => t.value.length > 0)
       .sort((a, b) => b.value.length - a.value.length)
-      .map((t) => ({ value: t.value, placeholder: placeholderFor(t.name, t.value, values) }));
+      .map((t) => ({ value: t.value, placeholder: placeholderForValues(t.name, t.value, values) }));
     const maxLen = this.targets.reduce((m, t) => Math.max(m, t.value.length), 0);
     this.keep = Math.max(0, maxLen - 1);
   }

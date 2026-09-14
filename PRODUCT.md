@@ -50,7 +50,7 @@ file alone is not the Ferry product.
 
 ## Current Truth
 
-As of 2026-08-10:
+As of 2026-09-14:
 
 - `@lucentive-labs/ferry@0.1.2` is public on npm as `latest`, published through
   npm Trusted Publishing with provenance.
