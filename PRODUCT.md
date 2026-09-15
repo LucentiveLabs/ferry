@@ -50,7 +50,7 @@ file alone is not the Ferry product.
 
 ## Current Truth
 
-As of 2026-08-10:
+As of 2026-09-14:
 
 - `@lucentive-labs/ferry@0.1.2` is public on npm as `latest`, published through
   npm Trusted Publishing with provenance.
@@ -67,9 +67,9 @@ As of 2026-08-10:
 - `ferry check` and `ferry cache` resolve plaintext from their configured
   backends but do not currently append audit rows. The audit covers `ferry run`
   injection and denial decisions, not every backend read or cache mutation.
-- The hosted security workflow blocks leaked secrets and reports dependency and
-  SAST findings under its v1 policy. A full dependency/SAST blocking scan is a
-  separate release-candidate receipt until the hosted policy is strengthened.
+- The release-candidate security workflow blocks leaked secrets and high or
+  critical dependency/SAST findings. Lower findings remain report-only. This
+  source hardening does not imply that the published v0.1.2 package has changed.
 - The public package is usable without an account, hosted control plane, sales
   workflow, or Lucentive One session.
 
@@ -140,8 +140,8 @@ A Ferry release is a `complete-surface-only` product increment when:
 - every new authority path has denial, ambient-env, output-boundary, audit, and
   secret-negative coverage proportional to its risk;
 - the README threat model and current limitations match the exact code;
-- typecheck, tests, package lint, the hosted secret-blocking/reporting security
-  policy, and an attached full dependency/SAST blocking scan pass for the exact
+- typecheck, tests, package lint, the hosted high-severity security gate,
+  and an attached full dependency/SAST blocking scan pass for the exact
   release candidate;
 - npm version, `latest`, provenance, and a clean install are verified after
   publication; and

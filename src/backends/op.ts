@@ -9,19 +9,21 @@ import type { Backend } from "./types";
  */
 export type OpExec = (bin: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
 
+class OpCommandError extends Error {}
+
 const defaultExec: OpExec = (bin, args) =>
   new Promise((resolve, reject) => {
     execFile(bin, args, { encoding: "utf8", maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) {
-        // Do NOT surface the child's raw stderr by default: a misconfigured
-        // `op` wrapper could emit sensitive text there, and it would then flow
-        // out through `ferry check` / `cache` OUTSIDE the redactor. Show it only
-        // under FERRY_DEBUG (where the operator has opted into raw diagnostics).
+        // Provider diagnostics can contain a value we never successfully
+        // resolved, so even debug mode cannot safely redact or print them.
         const code = (err as NodeJS.ErrnoException).code;
-        const detail = process.env.FERRY_DEBUG
-          ? `: ${(stderr && stderr.trim()) || err.message}`
-          : ` (exit ${code ?? "?"}; set FERRY_DEBUG=1 for details)`;
-        reject(new Error(`command failed${detail}`));
+        const safeCode = typeof code === "number" && Number.isInteger(code)
+          ? String(code)
+          : ["ENOENT", "EACCES", "ETIMEDOUT", "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"].includes(String(code))
+            ? String(code)
+            : "unknown";
+        reject(new OpCommandError(`command failed (exit ${safeCode})`));
         return;
       }
       resolve({ stdout, stderr });
@@ -42,11 +44,11 @@ export class OpBackend implements Backend {
       const { stdout } = await this.exec("op", ["read", ref]);
       const value = stdout.trim();
       if (value === "") {
-        throw new Error("returned an empty value");
+        throw new OpCommandError("returned an empty value");
       }
       return value;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = err instanceof OpCommandError ? err.message : "command failed";
       // Include the ref (an address, not a secret) but never a value.
       throw new Error(`op backend: failed to read "${ref}": ${message}`);
     }

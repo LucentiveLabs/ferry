@@ -1,10 +1,9 @@
 # synced-from: security-gate skill v1.0.0
 # Reusable security gate — drop into each repo as .github/workflows/security-gate.yml
 #
-# Runs on every PR. v1 policy: SECRETS BLOCK (gitleaks, working tree + full
-# history); dependency CVEs (osv-scanner) and SAST (semgrep) REPORT into the job
-# summary but do not fail the PR yet. Flip `--fail-on high` once the audit
-# backlog is triaged (see skills/security-gate/SKILL.md). Deterministic, non-LLM
+# Runs on every PR. Secrets, HIGH/CRITICAL dependency vulnerabilities and
+# blocking SAST findings fail the gate; lower findings remain visible in the
+# summary. The September release-tool advisories are patched. Deterministic, non-LLM
 # → permitted in GitHub Actions by the harness contract.
 #
 # Actions are pinned by commit SHA (not tag). Scanner versions are pinned below;
@@ -14,6 +13,7 @@ name: security-gate
 
 on:
   pull_request:
+  workflow_call:
   workflow_dispatch:
   schedule:
     # Weekly recurring scan (C5) — Mon 06:00 UTC. Catches newly-disclosed
@@ -24,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: security-gate-${{ github.ref }}
+  group: security-gate-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -69,5 +69,4 @@ jobs:
       - name: Run security gate
         run: |
           chmod +x scripts/security-scan.sh
-          # v1: block on secrets, report deps/SAST. Flip to --fail-on high after backlog triage.
-          scripts/security-scan.sh --mode full --fail-on secrets
+          scripts/security-scan.sh --mode full --fail-on high
