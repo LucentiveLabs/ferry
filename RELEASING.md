@@ -6,9 +6,9 @@ no long-lived npm token. The workflow is `.github/workflows/release.yml`.
 
 ## Flow
 
-1. Land changes on `main` with a changeset (`pnpm changeset`, or a markdown file under
-   `.changeset/`). On push to `main`, `changesets/action` opens a **"Version Packages"** PR
-   (it does not publish).
+1. Land changes on `dev` with a changeset (`pnpm changeset`, or a markdown file under
+   `.changeset/`) through a PR. To cut a release, promote `dev` to `main`. On push to
+   `main`, `changesets/action` opens a **"Version Packages"** PR (it does not publish).
 2. Merging that PR bumps the version, updates the changelog, and consumes the changesets. The
    release workflow then runs `pnpm release` (`pnpm build && changeset publish`) and publishes
    with provenance.

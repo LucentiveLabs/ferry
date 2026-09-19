@@ -16,6 +16,13 @@ pnpm test       # vitest
 pnpm typecheck  # tsc --noEmit
 ```
 
+## Branches
+
+- Working base is `dev`: branch from `origin/dev` as a short-lived `feat/`, `fix/`, or `docs/`
+  branch and open a PR to `dev`.
+- `main` is production/release: it receives `dev` through a promotion PR, and a push to `main`
+  drives the release lane (see [`RELEASING.md`](./RELEASING.md)).
+
 ## Layout
 
 ```
