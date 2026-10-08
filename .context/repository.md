@@ -21,7 +21,7 @@ Source-bound engineering orientation. Review changed facts before refreshing has
       },
       {
         "path": "package.json",
-        "sha256": "83b4e8a5e80c583825dfa36e48df09023d3d32b4cebfd82232bee00f90d54c24"
+        "sha256": "c4896cbae4158a0b3868327169ccd06f6f3844e9d4c82b01dee9ad44b07190a2"
       }
     ]
   },

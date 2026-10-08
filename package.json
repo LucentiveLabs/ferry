@@ -1,7 +1,7 @@
 {
   "name": "@lucentive-labs/ferry",
   "version": "0.1.2",
-  "description": "Agent-era secrets broker — inject declared secrets into a child process's env without ever exposing them to the calling agent. Zero runtime deps, output redaction, per-command policy allowlist, append-only audit.",
+  "description": "Agent-era secrets broker \u2014 inject declared secrets into a child process's env without ever exposing them to the calling agent. Zero runtime deps, output redaction, per-command policy allowlist, append-only audit.",
   "type": "module",
   "license": "MIT",
   "author": "Lucentive Labs",
@@ -49,7 +49,7 @@
     "prepare": "[ \"$(git rev-parse --show-toplevel 2>/dev/null)\" = \"$(pwd -P)\" ] && git config core.hooksPath scripts/githooks || true",
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "node --test scripts/check-braces-bounded.mjs && vitest run",
     "lint:publish": "pnpm build && node scripts/check-publish.mjs",
     "changeset": "changeset",
     "version": "changeset version",
@@ -78,7 +78,8 @@
       "js-yaml@3": "3.15.2",
       "js-yaml@4": "4.3.2",
       "nanoid@3": "3.3.18",
-      "postcss": "8.5.25"
+      "postcss": "8.5.25",
+      "braces": "file:./vendor/braces-bounded"
     },
     "onlyBuiltDependencies": [
       "esbuild"
