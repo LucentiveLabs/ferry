@@ -42,6 +42,7 @@
   },
   "files": [
     "dist",
+    "docs/keychain-adoption.md",
     "README.md",
     "LICENSE"
   ],
@@ -50,6 +51,7 @@
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "test": "node --test scripts/check-braces-bounded.mjs && vitest run",
+    "test:keychain": "pnpm build && node scripts/keychain-smoke.mjs",
     "lint:publish": "pnpm build && node scripts/check-publish.mjs",
     "changeset": "changeset",
     "version": "changeset version",
@@ -79,6 +81,7 @@
       "js-yaml@4": "4.3.2",
       "nanoid@3": "3.3.18",
       "postcss": "8.5.25",
+      "vite": "8.1.6",
       "braces": "file:./vendor/braces-bounded"
     },
     "onlyBuiltDependencies": [

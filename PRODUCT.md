@@ -77,6 +77,13 @@ Verdict: Ferry is a real, bounded OSS product at v0.1.2, not a hosted secret
 platform. Its current CLI surface may be described as shipped; unimplemented
 north-star extensions may not.
 
+Source increment, 2026-11-06 (LUC-7038): a read-only macOS Keychain backend
+now resolves one generic-password item from an explicit keychain file,
+service and account. The changeset requests a minor release; this is not yet
+a published version or an installed IAS consumer. It does not change the
+file-store master key or qualify same-UID isolation, scoped IAS grants, or
+destination/egress containment. See [adoption and limits](docs/keychain-adoption.md).
+
 ## Required End-To-End User Journey
 
 1. The user installs the exact package and reads its threat boundary.

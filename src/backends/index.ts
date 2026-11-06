@@ -2,6 +2,7 @@ import type { BackendRef } from "../schema";
 import { EnvBackend } from "./env";
 import { FileBackend } from "./file";
 import { OpBackend, type OpExec } from "./op";
+import { KeychainBackend, type KeychainExec } from "./keychain";
 import type { Backend } from "./types";
 
 /** Injectable dependencies for backend construction (tests + config). */
@@ -10,6 +11,8 @@ export interface BackendDeps {
   env?: NodeJS.ProcessEnv;
   /** Command runner for the `op` backend. Defaults to a real `execFile`. */
   opExec?: OpExec;
+  /** Trusted test seam for the macOS Keychain system command. */
+  keychainExec?: KeychainExec;
   /** Store path for the `file` backend. Defaults to `.ferry/secrets.enc.json`. */
   fileStorePath?: string;
   /** Passphrase for the `file` backend. Defaults to `FERRY_FILE_KEY`. */
@@ -28,6 +31,8 @@ export function resolveBackend(ref: BackendRef, deps: BackendDeps = {}): Backend
       });
     case "op":
       return new OpBackend(deps.opExec);
+    case "keychain":
+      return new KeychainBackend(deps.keychainExec);
     default: {
       // Exhaustiveness guard: an unknown kind should have failed validation.
       const never: never = ref.kind;
@@ -41,3 +46,4 @@ export type { OpExec } from "./op";
 export { EnvBackend } from "./env";
 export { FileBackend, DEFAULT_FILE_STORE } from "./file";
 export { OpBackend } from "./op";
+export { KeychainBackend, type KeychainExec } from "./keychain";

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   defineFerry,
   env,
+  keychain,
   file,
   op,
   parseConfig,
@@ -16,6 +17,15 @@ describe("backend-ref helpers", () => {
     expect(file("prod.convex")).toEqual({ kind: "file", ref: "prod.convex" });
     expect(env("MY_VAR")).toEqual({ kind: "env", ref: "MY_VAR" });
     expect(env()).toEqual({ kind: "env", ref: "" });
+  });
+
+  it("validates exact Keychain addresses without displaying invalid content", () => {
+    const item = { service: "example", account: "test", keychainPath: "/tmp/test.keychain-db" };
+    expect(keychain(item).kind).toBe("keychain");
+    expect(validateConfig({ secrets: { A: { backend: keychain(item), allow: ["tool"] } } })).toEqual([]);
+    expect(() => keychain({ ...item, keychainPath: "relative" })).toThrow("invalid item reference");
+    const errors = validateConfig({ secrets: { A: { backend: { kind: "keychain", ref: "invalid" }, allow: ["tool"] } } });
+    expect(errors).toEqual(['secret "A" has an invalid keychain item reference']);
   });
 });
 

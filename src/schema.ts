@@ -3,14 +3,14 @@
  *
  * A `ferry.config.ts` (or `.mjs` / `.js`) declares which secrets exist, where
  * each one is resolved from (a backend ref built with `op()` / `file()` /
- * `env()`), and which commands are permitted to receive it. The config is a
+ * `env()` / `keychain()`), and which commands are permitted to receive it. The config is a
  * plain, JSON-serializable object — no functions survive into the resolved
  * shape — so it can be loaded, validated, and audited without executing
  * arbitrary logic at read time.
  */
 
 /** Which backend resolves a secret's value. */
-export type BackendKind = "op" | "file" | "env";
+export type BackendKind = "op" | "file" | "env" | "keychain";
 
 /**
  * A backend reference. `kind` selects the resolver; `ref` is the backend's
@@ -40,6 +40,39 @@ export function file(name: string): BackendRef {
  */
 export function env(varName?: string): BackendRef {
   return { kind: "env", ref: varName ?? "" };
+}
+
+/** An exact macOS generic-password lookup. All fields are addresses, never values. */
+export interface KeychainItem {
+  service: string;
+  account: string;
+  /** Explicit absolute keychain file; never the ambient search list. */
+  keychainPath: string;
+}
+
+/** Validate without echoing caller-controlled references into diagnostics. */
+export function parseKeychainRef(ref: string): KeychainItem {
+  try {
+    if (typeof ref !== "string" || ref.length > 8192) throw new Error();
+    const item: unknown = JSON.parse(ref);
+    if (!isRecord(item) || Object.keys(item).sort().join(",") !== "account,keychainPath,service") throw new Error();
+    for (const field of ["service", "account", "keychainPath"] as const) {
+      const value = item[field];
+      if (typeof value !== "string" || value.length === 0 || value.length > 4096 || /[\x00-\x1f\x7f]/.test(value)) throw new Error();
+    }
+    const path = item.keychainPath as string;
+    if (!path.startsWith("/") || path.split("/").slice(1).some(part => !part || part === "." || part === "..")) throw new Error();
+    return item as unknown as KeychainItem;
+  } catch {
+    throw new Error("keychain backend: invalid item reference");
+  }
+}
+
+/** Read-only OS Keychain custody. This reference does not grant IAS authority. */
+export function keychain(item: KeychainItem): BackendRef {
+  const ref = JSON.stringify(item);
+  parseKeychainRef(ref);
+  return { kind: "keychain", ref };
 }
 
 /** One declared secret. */
@@ -76,7 +109,7 @@ export interface FerryConfig {
 
 export const DEFAULT_AUDIT_PATH = ".ferry/audit.log";
 
-const VALID_KINDS = new Set<BackendKind>(["op", "file", "env"]);
+const VALID_KINDS = new Set<BackendKind>(["op", "file", "env", "keychain"]);
 /** Valid POSIX-ish environment variable identifier. */
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -128,11 +161,11 @@ export function validateConfig(input: unknown): string[] {
     // backend
     const backend = raw.backend;
     if (!isRecord(backend)) {
-      errs.push(`secret "${name}" is missing a \`backend\` (use op(), file(), or env())`);
+      errs.push(`secret "${name}" is missing a \`backend\` (use op(), file(), env(), or keychain())`);
     } else {
       if (typeof backend.kind !== "string" || !VALID_KINDS.has(backend.kind as BackendKind)) {
         errs.push(
-          `secret "${name}" has an invalid backend kind "${String(backend.kind)}" (expected op | file | env)`,
+          `secret "${name}" has an invalid backend kind "${String(backend.kind)}" (expected op | file | env | keychain)`,
         );
       }
       if (typeof backend.ref !== "string") {
@@ -140,6 +173,8 @@ export function validateConfig(input: unknown): string[] {
       } else if (backend.kind !== "env" && backend.ref.trim() === "") {
         // env() may legitimately carry an empty ref (falls back to the secret's own NAME).
         errs.push(`secret "${name}" backend \`ref\` must not be empty for the "${String(backend.kind)}" backend`);
+      } else if (backend.kind === "keychain") {
+        try { parseKeychainRef(backend.ref); } catch { errs.push(`secret "${name}" has an invalid keychain item reference`); }
       }
     }
 
