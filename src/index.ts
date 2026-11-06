@@ -16,9 +16,10 @@ export {
   op,
   file,
   env,
+  keychain,
   DEFAULT_AUDIT_PATH,
 } from "./schema";
-export type { FerryConfig, SecretDef, BackendRef, BackendKind } from "./schema";
+export type { FerryConfig, SecretDef, BackendRef, BackendKind, KeychainItem } from "./schema";
 
 // Policy matcher (argv-aware).
 export { matchCommand, tokenToRegExp, isCommandAllowed } from "./glob";
@@ -33,9 +34,10 @@ export {
   EnvBackend,
   FileBackend,
   OpBackend,
+  KeychainBackend,
   DEFAULT_FILE_STORE,
 } from "./backends";
-export type { Backend, OpExec, BackendDeps } from "./backends";
+export type { Backend, OpExec, BackendDeps, KeychainExec } from "./backends";
 
 // Audit log.
 export { appendAudit, readAudit } from "./audit";

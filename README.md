@@ -74,7 +74,7 @@ export default defineFerry({
 - **`secrets`** — the map key is the **environment variable** injected into the
   child (must be a valid env identifier).
 - **`backend`** — where the value comes from, built with `op()` / `file()` /
-  `env()`.
+  `env()` / `keychain()`.
 - **`allow`** — glob(s) permitted to receive this secret, matched
   **positionally against the command's argv** (per-arg, not a flattened
   string). Within a token `*` matches any run of characters; a trailing bare
@@ -97,6 +97,13 @@ a dev tool). Your config is **trusted code you author** (like a `Makefile` or
 | **1Password** | `op(ref)` | High | Team/prod secrets via the `op` CLI (`op read <ref>`). |
 | **Encrypted file** | `file(name)` | Medium | Headless reuse. AES-256-GCM, scrypt-derived key from `FERRY_FILE_KEY`. |
 | **Process env** | `env(varName?)` | Low | Local dev; reads `process.env` / a local `.env`. |
+| **macOS Keychain** | `keychain({ service, account, keychainPath })` | OS access controls | Read one generic-password item from an explicit absolute keychain file. |
+
+The Keychain backend uses the fixed macOS system tool, an empty environment,
+bounded execution, and generic failures. It never unlocks or writes items.
+The OS may require the person to allow access. See [adoption and limits](./docs/keychain-adoption.md).
+This adds custody resolution; it does not isolate agents that share an OS user
+or constrain what an allowed child does with a credential.
 
 **Headless, without biometric timeouts.** `op`'s biometric prompt fails in a
 headless agent loop. Decrypt **once** while present, into the encrypted file
@@ -165,8 +172,8 @@ and never printed.
 - Your `ferry.config.*` is **trusted code you author** and is not sandboxed
   (same trust model as any config file); don't run `ferry` against a config
   from an untrusted repo, and don't print secrets inside your config.
-- The `file` backend's key comes from `FERRY_FILE_KEY` in v0.1; a real OS-keychain
-  integration is post-v0.1.
+- The `file` backend's key still comes from `FERRY_FILE_KEY`. The separate
+  read-only `keychain` backend does not change file-store key custody.
 
 ## Not in v0.1
 

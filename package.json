@@ -42,6 +42,7 @@
   },
   "files": [
     "dist",
+    "docs/keychain-adoption.md",
     "README.md",
     "LICENSE"
   ],
@@ -50,6 +51,7 @@
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "test": "node --test scripts/check-braces-bounded.mjs && vitest run",
+    "test:keychain": "pnpm build && node scripts/keychain-smoke.mjs",
     "lint:publish": "pnpm build && node scripts/check-publish.mjs",
     "changeset": "changeset",
     "version": "changeset version",
